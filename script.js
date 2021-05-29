@@ -25,6 +25,9 @@
 
     function scrollToBottom(){window.scrollTo(0,document.body.scrollHeight);}
 
+    function silentReload(){localStorage.setItem("isSilentReload","1");document.location.reload();}
+    function isSilentReload(){return localStorage.getItem("isSilentReload")=="1";}
+
    function keepScrollingUntilEnd(args){
     args=args||{timeout:0};//timeout in seconds
       let promise = new Promise((resolve, reject) => {
@@ -219,7 +222,7 @@
     function saveJsonSummary(json){localStorage.setItem(storageKey,JSON.stringify(json));}
     function getJsonSummary(storageKey){return JSON.parse(localStorage.getItem(storageKey));}
 
-    let keywords=["worthless","alienated","bully","depress","depression","abuse","abusive","trauma","ptsd","heal","recover","cruel","harass","emotional","narc","empath","suicide","suicidal","mental","cheat","betray","forgive","broken","bpd","borderline","personality disorder","domestic violence"]
+    let keywords=["worthless","alienated","bully","depress","depression","abuse","abusive","trauma","ptsd","heal","recover","cruel","harass","emotional","narc","empath","suicide","suicidal","mental","cheat","betray","forgive","broken","bpd","borderline","personality disorder","disorder","violence","domestic violence","toxic"]
     let summary={};
     saveJsonStatus("ongoing");
     if(/https:\/\/m.facebook.com\/\S*\/about/i.test(document.location.href) || /https:\/\/m.facebook.com\/profile.php?\S*&v=info/i.test(document.location.href)){
@@ -228,6 +231,10 @@
         console.log('harvestLikes');
         saveJsonStatus("ongoing");
 
+        //harvest aboutus
+        //document.querySelector('#timelineBody').querySelectorAll('[data-sigil=profile-card]')[15].querySelector('[data-sigil=marea]').innerText
+        //document.querySelector('#timelineBody').querySelectorAll('[data-sigil=profile-card]')[15].querySelector('[role]').innerText
+
         await moveFromAboutUsToAllLikesPageAsync();
 
         let result=[]
@@ -235,10 +242,43 @@
             result=await harvestLikes();
         }catch(e){}
        summary=summarizeMatches(keywords,result);
+    }else if(/https:\/\/m.facebook.com\/\S*\/friends/i.test(document.location.href)){
+        console.log('friends');
+        async function harvestFriends(){
+            await keepScrollingUntilEnd();
+            let addFriendButtons=document.querySelectorAll('button[value="Add Friend"]');
+            let friends=[];
+            for(let i=0;i<addFriendButtons.length;i++){
+                try{
+                let addFriendButton=addFriendButtons[i];
+                let addFriendLabel=addFriendButton.getAttribute('aria-label');
+                let name=addFriendLabel.substr("Add ".length,-"Add ".length+addFriendLabel.length-" as a friend".length)
+                let profileId=JSON.parse(document.querySelector('button[value="Add Friend"]').parentElement.dataset.store).id;
+                let profileLink="https://m.facebook.com/profile.php?id="+profileId;
+                friends.push({name,profileId,profileLink});
+                }catch(e){console.log(e);}
+            }
+            return {friends};
+        }
+        let result=await harvestFriends();
+        window.summary=summary=result;
+        console.log(result);
 
     }else if(/https:\/\/m.facebook.com\/messages\/\S*/i.test(document.location.href)){
         console.log('message');
         sleepAsync({timeout:10000});
+
+        function textSummaryKeywords(keywords){
+            let keywordsText="keywords loaded:"
+            for(let i=0;i<keywords.length;i++){
+                let keyword=keywords[i];
+                keywordsText=keywordsText+" "+keyword+",";
+            }
+            if(keywords.length>0){keywordsText=keywordsText.substr(0,keywordsText.length-1);}
+            return keywordsText;
+        }
+        let keywordsText=textSummaryKeywords(keywords);
+        await sendMessage(keywordsText);
         await sendMessage("fb profile reviewer bot started, awaiting for profile links");
         //document.querySelector('#messageGroup').querySelectorAll('[data-sigil="message-xhp marea"]')[4].querySelector('[data-sigil="message-text"]').querySelectorAll('a')[0]
         let messagesHolder=null;
@@ -294,18 +334,41 @@
         for(let i=0;i<fbProfileUrls.length;i++){
             setTimeout(async ()=>{
                 let fbProfileUrl=fbProfileUrls[i];
+                let maxItems=3;
                 let userName=fbProfileUrl.substr("https://m.facebook.com/".length);
                 await sendMessage("harvesting posts of "+userName);
                 let postSummary=await harvestLink(fbProfileUrl);
                 progress=progress+1;
-                await sendMessage("done harvesting posts of "+userName+" >>>"+convertProgressToPercent(progress,fbProfileUrls.length*2));
+                await sendMessage("done harvesting posts of "+userName+" >>>"+convertProgressToPercent(progress,maxItems));
                 await sendMessage("harvesting likes of "+userName);
                 let aboutUsUrl=fbProfileUrl+"/about";
                 if(fbProfileUrl.startsWith("https://m.facebook.com/profile.php")){aboutUsUrl=fbProfileUrl+"&v=info";}
                 let likeSummary=await harvestLink(aboutUsUrl);
+                await sendMessage("harvesting likes again just to be sure");
+                let likeSummary2=await harvestLink(aboutUsUrl);
+
+                if(likeSummary.otherData.items.length<likeSummary2.otherData.items.length){
+                    likeSummary=likeSummary2;
+                    await sendMessage("2nd like harvested has more likes so i'm using the 2nd one.");
+                }
+
                 progress=progress+1;
-                await sendMessage("done harvesting likes of "+userName+" >>>"+convertProgressToPercent(progress,fbProfileUrls.length*2));
-                summaries.push({fbProfileUrl,postSummary,likeSummary});
+                await sendMessage("done harvesting likes of "+userName+" >>>"+convertProgressToPercent(progress,maxItems));
+
+                if(fbProfileUrl.startsWith("https://m.facebook.com/profile.php")){
+                    //know what the friends link for profile format first
+                }else{
+                    await sendMessage("harvesting friends of "+userName);
+                    let friendsUrl=fbProfileUrl+"/friends";
+                    let friendsSummary=await harvestLink(friendsUrl);
+                    progress=progress+1;
+                    await sendMessage("done harvesting friends of "+userName+" >>>"+convertProgressToPercent(progress,maxItems));
+
+                }
+
+
+
+                summaries.push({fbProfileUrl,postSummary,likeSummary,friendsSummary});
             },1);
             while((i+1)-summaries.length>=maxThreads){
                 console.log("sleeping.. ("+i+"/"+summaries.length+"/"+fbProfileUrls.length+")")
@@ -319,7 +382,7 @@
         let summariesText="";
         for(let i=0;i<summaries.length;i++){
             let summary=summaries[i];
-            let {fbProfileUrl,postSummary,likeSummary}=summary;
+            let {fbProfileUrl,postSummary,likeSummary,friendsSummary}=summary;
             let summaryText=fbProfileUrl+"\n";
             summaryText=summaryText+"*** POSTS ****\n\n";
             console.log("post summary");
@@ -331,6 +394,9 @@
             console.log(likeSummary);
             summaryText=summaryText+"total likes reviewed : "+likeSummary.otherData.items.length+"\n";
             summaryText=summaryText+textSummary(likeSummary);
+            summaryText=summaryText+"total friends : "+friendsSummary.friends.length+"\n";
+
+
             summaryText=summaryText+"\n##########################################\n\n";
             await sendMessage(summaryText);
             summariesText=summariesText+summaryText
@@ -372,3 +438,4 @@
 
 
 })();
+
