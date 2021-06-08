@@ -25,8 +25,15 @@
 
     function scrollToBottom(){window.scrollTo(0,document.body.scrollHeight);}
 
-    function silentReload(){localStorage.setItem("isSilentReload","1");document.location.reload();}
+    async function silentReload(){
+        do{
+            localStorage.setItem("isSilentReload","1");document.location.reload();await sleepAsync({timeout:30*1000});
+        }while(true);
+    }
     function isSilentReload(){return localStorage.getItem("isSilentReload")=="1";}
+    async function clearSilentReload(){
+        localStorage.setItem("isSilentReload","0");
+    }
 
    function keepScrollingUntilEnd(args){
     args=args||{timeout:0};//timeout in seconds
@@ -277,9 +284,21 @@
             if(keywords.length>0){keywordsText=keywordsText.substr(0,keywordsText.length-1);}
             return keywordsText;
         }
-        let keywordsText=textSummaryKeywords(keywords);
-        await sendMessage(keywordsText);
-        await sendMessage("fb profile reviewer bot started, awaiting for profile links");
+        if(isSilentReload()){
+            console.log("isSilentReload detected");
+            clearSilentReload();
+        }else{
+            let keywordsText=textSummaryKeywords(keywords);
+            await sendMessage(keywordsText);
+            await sendMessage("fb profile reviewer bot started, awaiting for profile links");
+        }
+
+        let secondsElapsed=0;
+
+        setInterval(()=>{
+            secondsElapsed=secondsElapsed+1;
+        },1000);
+
         //document.querySelector('#messageGroup').querySelectorAll('[data-sigil="message-xhp marea"]')[4].querySelector('[data-sigil="message-text"]').querySelectorAll('a')[0]
         let messagesHolder=null;
         do{
@@ -288,6 +307,12 @@
         }while(messagesHolder==null);
 
         while(true){
+        console.log("secondsElapsed:"+secondsElapsed);
+        if(secondsElapsed>10){
+            //await sendMessage("debug message : elapsed seconds reached more than 10 seconds, i will reload the page.");
+            await silentReload();
+
+        }
         scrollToBottom();
 
         let messages=messagesHolder.querySelectorAll('[data-sigil="message-xhp marea"]');
@@ -355,12 +380,14 @@
                 progress=progress+1;
                 await sendMessage("done harvesting likes of "+userName+" >>>"+convertProgressToPercent(progress,maxItems));
 
+               let friendsSummary={friends:[]};
+
                 if(fbProfileUrl.startsWith("https://m.facebook.com/profile.php")){
                     //know what the friends link for profile format first
                 }else{
                     await sendMessage("harvesting friends of "+userName);
                     let friendsUrl=fbProfileUrl+"/friends";
-                    let friendsSummary=await harvestLink(friendsUrl);
+                    friendsSummary=await harvestLink(friendsUrl);
                     progress=progress+1;
                     await sendMessage("done harvesting friends of "+userName+" >>>"+convertProgressToPercent(progress,maxItems));
 
