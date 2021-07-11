@@ -72,7 +72,8 @@
           let result=[];
           for(let i=0;i<likes.length;i++){
               let like=likes[i];
-              result.push({href:like.getAttribute('href'),text:like.parentElement.textContent});
+              //href:like.getAttribute('href')
+              result.push({text:like.parentElement.textContent});
           }
           resolve(result);
       });
@@ -129,8 +130,14 @@
         return text;
     }
 
+
     async function sendMessage(text){
-        await sleepAsync({timeout:3000});
+        await sleepAsync({timeout:5000});
+        while(text.length>9000){
+            let firstPart=text.substr(0,8000);
+            await sendMessage(firstPart);
+            text=text.substr(firstPart.length,text.length-firstPart.length);
+        }
         let sendMessageForm=document.querySelector('form[data-sigil="m-messaging-composer"]');
         let messageTextbox=sendMessageForm.querySelector('textarea');
         messageTextbox.value=text
@@ -138,6 +145,7 @@
         e.keyCode = 13;
         messageTextbox.dispatchEvent(e);
         sendMessageForm.querySelector('[type=submit]').click()
+        await sleepAsync({timeout:5000});
     }
 
 
@@ -166,7 +174,7 @@
         //click like section
         let e=await waitUntilNotNull({callback:()=>{return findDivThatContains('Likes').parentElement.parentElement.querySelector('a');}});
         if(e){e.click();}
-        sleepAsync();
+        await sleepAsync();
         //click all likes
         let e2=await waitUntilNotNull({callback:()=>{return findDivThatContains('All Likes').parentElement.parentElement.parentElement.parentElement.querySelector('a');}});
         if(e2){e2.click();}
@@ -273,7 +281,7 @@
 
     }else if(/https:\/\/m.facebook.com\/messages\/\S*/i.test(document.location.href)){
         console.log('message');
-        sleepAsync({timeout:10000});
+        await sleepAsync({timeout:10000});
 
         function textSummaryKeywords(keywords){
             let keywordsText="keywords loaded:"
@@ -431,8 +439,8 @@
         await sendMessage("done processing links");
         window.summariesText=summariesText;
         console.log(summariesText);
-        sleepAsync({timeout:3000});
-        if(summaries.length>0){document.location.reload();}
+        await sleepAsync({timeout:3000});
+        if(summaries.length>0 || fbProfileUrls.length>0){document.location.reload();await sleepAsync({timeout:60000});}
         
         }
 
